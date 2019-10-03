@@ -144,15 +144,11 @@ class JiraJQL(BaseHTTPQueryRunner):
     requires_authentication = True
     url_title = 'JIRA URL'
     username_title = 'Username'
-    password_title = 'Password'
+    password_title = 'API Token'
 
     @classmethod
     def name(cls):
         return "JIRA (JQL)"
-
-    @classmethod
-    def annotate_query(cls):
-        return False
 
     def __init__(self, configuration):
         super(JiraJQL, self).__init__(configuration)
