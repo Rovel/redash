@@ -13,7 +13,7 @@ from redash.query_runner import (
     BaseQueryRunner,
     register,
 )
-from redash.utils import JSONEncoder, json_dumps, json_loads, parse_human_time
+from redash.utils import json_loads, parse_human_time
 
 logger = logging.getLogger(__name__)
 
@@ -40,17 +40,6 @@ TYPES_MAP = {
     bool: TYPE_BOOLEAN,
     datetime.datetime: TYPE_DATETIME,
 }
-
-
-class MongoDBJSONEncoder(JSONEncoder):
-    def default(self, o):
-        if isinstance(o, ObjectId):
-            return str(o)
-        elif isinstance(o, Timestamp):
-            return super(MongoDBJSONEncoder, self).default(o.as_datetime())
-        elif isinstance(o, Decimal128):
-            return o.to_decimal()
-        return super(MongoDBJSONEncoder, self).default(o)
 
 
 date_regex = re.compile(r'ISODate\("(.*)"\)', re.IGNORECASE)
@@ -93,6 +82,18 @@ def _get_column_by_name(columns, column_name):
     return None
 
 
+def _parse_dict(dic):
+    res = {}
+    for key, value in dic.items():
+        if isinstance(value, dict):
+            for tmp_key, tmp_value in _parse_dict(value).items():
+                new_key = "{}.{}".format(key, tmp_key)
+                res[new_key] = tmp_value
+        else:
+            res[key] = value
+    return res
+
+
 def parse_results(results):
     rows = []
     columns = []
@@ -100,32 +101,15 @@ def parse_results(results):
     for row in results:
         parsed_row = {}
 
-        for key in row:
-            if isinstance(row[key], dict):
-                for inner_key in row[key]:
-                    column_name = "{}.{}".format(key, inner_key)
-                    if _get_column_by_name(columns, column_name) is None:
-                        columns.append(
-                            {
-                                "name": column_name,
-                                "friendly_name": column_name,
-                                "type": TYPES_MAP.get(type(row[key][inner_key]), TYPE_STRING),
-                            }
-                        )
-
-                    parsed_row[column_name] = row[key][inner_key]
-
-            else:
-                if _get_column_by_name(columns, key) is None:
-                    columns.append(
-                        {
-                            "name": key,
-                            "friendly_name": key,
-                            "type": TYPES_MAP.get(type(row[key]), TYPE_STRING),
-                        }
-                    )
-
-                parsed_row[key] = row[key]
+        parsed_row = _parse_dict(row)
+        for column_name, value in parsed_row.items():
+            columns.append(
+                {
+                    "name": column_name,
+                    "friendly_name": column_name,
+                    "type": TYPES_MAP.get(type(value), TYPE_STRING),
+                }
+            )
 
         rows.append(parsed_row)
 
@@ -175,6 +159,16 @@ class MongoDB(BaseQueryRunner):
         self.is_replica_set = (
             True if "replicaSetName" in self.configuration and self.configuration["replicaSetName"] else False
         )
+
+    @classmethod
+    def custom_json_encoder(cls, dec, o):
+        if isinstance(o, ObjectId):
+            return str(o)
+        elif isinstance(o, Timestamp):
+            return dec.default(o.as_datetime())
+        elif isinstance(o, Decimal128):
+            return o.to_decimal()
+        return None
 
     def _get_db(self):
         kwargs = {}
@@ -353,9 +347,8 @@ class MongoDB(BaseQueryRunner):
 
         data = {"columns": columns, "rows": rows}
         error = None
-        json_data = json_dumps(data, cls=MongoDBJSONEncoder)
 
-        return json_data, error
+        return data, error
 
 
 register(MongoDB)

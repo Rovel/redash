@@ -112,6 +112,8 @@ def enqueue_query(query, data_source, user_id, is_api_key=False, scheduled_query
 
         except redis.WatchError:
             continue
+        finally:
+            pipe.reset()
 
     if not job:
         logger.error("[Manager][%s] Failed adding job for query.", query_hash)
@@ -143,7 +145,7 @@ def _resolve_user(user_id, is_api_key, query_id):
         return None
 
 
-class QueryExecutor(object):
+class QueryExecutor:
     def __init__(self, query, data_source_id, user_id, is_api_key, metadata, is_scheduled_query):
         self.job = get_current_job()
         self.query = query
